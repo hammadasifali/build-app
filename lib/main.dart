@@ -5,58 +5,97 @@ import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'dart:ui'; // Required for ImageFilter.blur
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    systemNavigationBarColor: Colors.transparent,
-    systemNavigationBarDividerColor: Colors.transparent,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
+    ),
+  );
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Vegas Mania',
+      title: 'Bonanza Games',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: SplashScreen(),
+      home: const SplashScreen(),
     );
   }
 }
 
 class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
   @override
-  _SplashScreenState createState() => _SplashScreenState();
+  State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  List<String> portraitGames = [];
+
   @override
   void initState() {
     super.initState();
-    _navigateToHome();
+    _preloadDataAndNavigateToHome();
   }
 
-  Future<void> _navigateToHome() async {
-    await Future.delayed(Duration(seconds: 3), () {});
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => PreviewWebpage()));
+  Future<void> _preloadDataAndNavigateToHome() async {
+    await _fetchPortraitGames();
+    await Future.delayed(
+      const Duration(
+        seconds: 3,
+      ),
+    );
+    Navigator.pushReplacement(
+      // ignore: use_build_context_synchronously
+      context,
+      MaterialPageRoute(
+        builder: (context) => const PreviewWebpage(),
+      ),
+    );
+  }
+
+  Future<void> _fetchPortraitGames() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    portraitGames = prefs.getStringList('portraitGames') ?? [];
+
+    if (portraitGames.isEmpty) {
+      final response =
+          await http.get(Uri.parse('https://vegasmania.app/portrait'));
+      if (response.statusCode == 200) {
+        setState(() {
+          portraitGames = List<String>.from(jsonDecode(response.body)['games']);
+          prefs.setStringList('portraitGames', portraitGames);
+        });
+      } else {
+        throw Exception('Failed to fetch portrait games');
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return const Scaffold(
       backgroundColor: Colors.white,
       body: Center(
         child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.purpleAccent),
+          valueColor: AlwaysStoppedAnimation<Color>(
+            Colors.purpleAccent,
+          ),
         ),
       ),
     );
@@ -70,9 +109,10 @@ class PreviewWebpage extends StatefulWidget {
   State<PreviewWebpage> createState() => _PreviewWebpageState();
 }
 
-class _PreviewWebpageState extends State<PreviewWebpage> with WidgetsBindingObserver {
+class _PreviewWebpageState extends State<PreviewWebpage>
+    with WidgetsBindingObserver {
   late WebViewController _controller;
-  final String initialUrl = 'https://bonanza777.app';
+  final String initialUrl = 'https://bonanzagames.app';
   List<String> portraitGames = [];
   bool _isLoading = true;
   bool _isError = false;
@@ -81,10 +121,14 @@ class _PreviewWebpageState extends State<PreviewWebpage> with WidgetsBindingObse
   @override
   void initState() {
     super.initState();
+    // Only set the platform for Android
+    if (Platform.isAndroid) {
+      WebView.platform = SurfaceAndroidWebView();
+    }
+
     WidgetsBinding.instance.addObserver(this);
     _lockOrientationBasedOnUrl(initialUrl);
     _fetchPortraitGames();
-    if (Platform.isAndroid) WebView.platform = SurfaceAndroidWebView();
   }
 
   @override
@@ -96,44 +140,39 @@ class _PreviewWebpageState extends State<PreviewWebpage> with WidgetsBindingObse
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    print('AppLifecycleState: $state');
-
     switch (state) {
       case AppLifecycleState.paused:
-        print('App is paused');
         _pauseWebView();
         break;
       case AppLifecycleState.resumed:
-        print('App is resumed');
         _resumeWebView();
         _preventScreenSleep();
         break;
-      case AppLifecycleState.detached:
-        print('App is detached');
-        break;
-      case AppLifecycleState.inactive:
-        print('App is inactive');
-        break;
       default:
-        print('AppLifecycleState: $state');
         break;
     }
   }
 
-  void _lockOrientationBasedOnUrl(String url) {
-    if (_isPortraitGame(url)) {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.portraitDown,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    } else {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
+  Future<void> _lockOrientationBasedOnUrl(String url) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? cachedOrientation = prefs.getString('orientation');
+
+    if (cachedOrientation == null || !_isPortraitGame(url)) {
+      if (_isPortraitGame(url)) {
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+        prefs.setString('orientation', 'portrait');
+      } else {
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+        prefs.setString('orientation', 'landscape');
+      }
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     }
   }
@@ -151,39 +190,11 @@ class _PreviewWebpageState extends State<PreviewWebpage> with WidgetsBindingObse
   }
 
   void _pauseWebView() {
-    if (_controller != null) {
-      _controller.runJavascript("document.querySelector('video').pause();");
-    }
+    _controller.runJavascript("document.querySelector('video').pause();");
   }
 
   void _resumeWebView() {
-    if (_controller != null) {
-      _controller.runJavascript("document.querySelector('video').play();");
-    }
-  }
-
-  Future<void> _showExitConfirmation() async {
-    bool shouldExit = await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Exit App'),
-        content: Text('Are you sure you want to exit the app?'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text('No'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text('Yes'),
-          ),
-        ],
-      ),
-    ) ?? false;
-
-    if (shouldExit) {
-      SystemNavigator.pop();
-    }
+    _controller.runJavascript("document.querySelector('video').play();");
   }
 
   void _onPageFinished(String url) {
@@ -196,17 +207,16 @@ class _PreviewWebpageState extends State<PreviewWebpage> with WidgetsBindingObse
   void _onPageStarted(String url) {
     setState(() {
       _isLoading = true;
-      _isError = false; // Reset error state on page load
-      _errorMessage = ''; // Clear any previous error message
+      _isError = false;
+      _errorMessage = '';
     });
   }
 
   void _onWebResourceError(WebResourceError error) {
     setState(() {
-      _isError = true; // Set error state to true on error
-      _isLoading = false; // Stop the loader if an error occurs
+      _isError = true;
+      _isLoading = false;
 
-      // Determine the type of error and set an appropriate message
       if (error.errorType == WebResourceErrorType.connect) {
         _errorMessage = 'No internet connection. Please check your connection.';
       } else if (error.errorType == WebResourceErrorType.hostLookup) {
@@ -214,24 +224,59 @@ class _PreviewWebpageState extends State<PreviewWebpage> with WidgetsBindingObse
       } else {
         _errorMessage = 'We are working on it. Please wait.';
       }
+
+      Future.delayed(const Duration(seconds: 3), () {
+        _controller.reload();
+      });
     });
   }
 
   Future<void> _fetchPortraitGames() async {
-    final response = await http.get(Uri.parse('https://vegasmania.app/portrait'));
-    if (response.statusCode == 200) {
-      setState(() {
-        portraitGames = List<String>.from(jsonDecode(response.body)['games']);
-        print("this is ");
-        print(portraitGames);
-      });
-    } else {
-      throw Exception('Failed to fetch portrait games');
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    portraitGames = prefs.getStringList('portraitGames') ?? [];
+
+    if (portraitGames.isEmpty) {
+      final response =
+          await http.get(Uri.parse('https://vegasmania.app/portrait'));
+      if (response.statusCode == 200) {
+        setState(() {
+          portraitGames = List<String>.from(jsonDecode(response.body)['games']);
+          prefs.setStringList('portraitGames', portraitGames);
+        });
+      } else {
+        throw Exception('Failed to fetch portrait games');
+      }
+    }
+  }
+
+  Future<void> _showExitConfirmation() async {
+    bool shouldExit = await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Exit App'),
+            content: const Text('Are you sure you want to exit the app?'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('No'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Yes'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (shouldExit) {
+      SystemNavigator.pop(); // Close the app
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // ignore: deprecated_member_use
     return WillPopScope(
       onWillPop: () async {
         await _showExitConfirmation();
@@ -241,29 +286,27 @@ class _PreviewWebpageState extends State<PreviewWebpage> with WidgetsBindingObse
         body: Stack(
           children: [
             _isError
-                ? _buildErrorPage() // Display error page if there's an error
+                ? _buildErrorPage()
                 : WebView(
-              initialUrl: initialUrl,
-              javascriptMode: JavascriptMode.unrestricted,
-              onWebViewCreated: (WebViewController webViewController) {
-                _controller = webViewController;
-              },
-              onPageStarted: _onPageStarted,
-              onPageFinished: _onPageFinished,
-              onWebResourceError: _onWebResourceError, // Handle errors
-              gestureNavigationEnabled: !_isLoading, // Disable gestures when loading
-              allowsInlineMediaPlayback: true,
-            ),
+                    initialUrl: initialUrl,
+                    javascriptMode: JavascriptMode.unrestricted,
+                    onWebViewCreated: (WebViewController webViewController) {
+                      _controller = webViewController;
+                      _controller.loadUrl(initialUrl);
+                    },
+                    onPageStarted: _onPageStarted,
+                    onPageFinished: _onPageFinished,
+                    onWebResourceError: _onWebResourceError,
+                    gestureNavigationEnabled: !_isLoading,
+                    allowsInlineMediaPlayback: true,
+                  ),
             if (_isLoading && !_isError)
-              BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
-                child: Center(
-                  child: CustomPreloader(), // Custom Preloader Widget
-                ),
+              const Center(
+                child: CircularProgressIndicator(),
               ),
             if (_isLoading && !_isError)
-              Positioned.fill(
-                child: AbsorbPointer(), // Disable all interactions
+              const Positioned.fill(
+                child: AbsorbPointer(),
               ),
           ],
         ),
@@ -276,26 +319,26 @@ class _PreviewWebpageState extends State<PreviewWebpage> with WidgetsBindingObse
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.error, color: Colors.red, size: 100),
-          SizedBox(height: 20),
+          const Icon(Icons.error, color: Colors.red, size: 100),
+          const SizedBox(height: 20),
           Text(
-            _errorMessage, // Display the specific error message
-            style: TextStyle(
+            _errorMessage,
+            style: const TextStyle(
               fontSize: 24,
               color: Colors.redAccent,
             ),
             textAlign: TextAlign.center,
           ),
-          SizedBox(height: 20),
+          const SizedBox(height: 20),
           TextButton(
             onPressed: () {
               setState(() {
                 _isLoading = true;
                 _isError = false;
-                _controller.reload(); // Retry loading the page
+                _controller.reload();
               });
             },
-            child: Text(
+            child: const Text(
               'Retry',
               style: TextStyle(
                 fontSize: 18,
@@ -303,25 +346,6 @@ class _PreviewWebpageState extends State<PreviewWebpage> with WidgetsBindingObse
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class CustomPreloader extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Image.asset(
-            'assets/loader.gif', // Example of a custom loader image (GIF, PNG, etc.)
-            width: 100,
-            height: 100,
-          ),
-          SizedBox(height: 20), // Adjust the height as needed
         ],
       ),
     );

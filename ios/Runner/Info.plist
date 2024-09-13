@@ -45,5 +45,21 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>io.flutter.embedded_views_preview</key>
+	<true/>
+
+
+	<!-- App Transport Security exception if using HTTP -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+	  <key>NSAllowsArbitraryLoads</key>
+	  <true/>
+	</dict>
+
+	<!-- Add Camera and Microphone Permissions if needed -->
+	<key>NSCameraUsageDescription</key>
+	<string>Your app needs access to the camera to function properly.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Your app needs access to the microphone to function properly.</string>
 </dict>
 </plist>
