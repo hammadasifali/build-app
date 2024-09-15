@@ -190,11 +190,15 @@ class _PreviewWebpageState extends State<PreviewWebpage>
   }
 
   void _pauseWebView() {
-    _controller.runJavascript("document.querySelector('video').pause();");
+    if (_controller != null) {
+      _controller.runJavascript("document.querySelector('video').pause();");
+    }
   }
 
   void _resumeWebView() {
-    _controller.runJavascript("document.querySelector('video').play();");
+    if (_controller != null) {
+      _controller.runJavascript("document.querySelector('video').play();");
+    }
   }
 
   void _onPageFinished(String url) {
